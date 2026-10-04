@@ -167,31 +167,36 @@ export default function SearchResults({ query }: { query: string }) {
 
         <section className="flex min-h-0 flex-1 flex-col overflow-y-auto md:w-4/5 md:flex-row md:overflow-hidden">
           <article className="px-4 py-8 sm:px-8 md:w-[65%] md:overflow-y-auto">
-            <h1 className="text-2xl font-semibold sm:text-3xl">{title}</h1>
-            <p className="mt-1 text-sm text-zinc-500">Dummy article #{selected + 1}</p>
-            {topicImages[selected] && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={topicImages[selected]}
-                alt=""
-                className="mt-6 aspect-[2/1] w-full rounded-xl border border-zinc-200 object-cover"
-              />
-            )}
-            <p className="mt-6 leading-relaxed">
-              This is placeholder content for <strong>{title}</strong>. Lorem
-              ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod
-              tempor incididunt ut labore et dolore magna aliqua.
-            </p>
-            <p className="mt-4 leading-relaxed">
-              Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
-              nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
-              reprehenderit in voluptate velit esse cillum dolore eu fugiat
-              nulla pariatur.
-            </p>
-            <p className="mt-4 leading-relaxed">
-              Excepteur sint occaecat cupidatat non proident, sunt in culpa qui
-              officia deserunt mollit anim id est laborum.
-            </p>
+            <div className="mx-auto max-w-2xl">
+              <h1 className="font-serif text-3xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-4xl">
+                {title}
+              </h1>
+              {topicImages[selected] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={topicImages[selected]}
+                  alt=""
+                  className="mt-8 aspect-[2/1] w-full rounded-lg object-cover"
+                />
+              )}
+              <div className="mt-8 space-y-6 font-serif text-lg leading-8 text-zinc-800 sm:text-xl sm:leading-9">
+                <p>
+                  This is placeholder content for <strong>{title}</strong>. Lorem
+                  ipsum dolor sit amet, consectetur adipiscing elit, sed do
+                  eiusmod tempor incididunt ut labore et dolore magna aliqua.
+                </p>
+                <p>
+                  Ut enim ad minim veniam, quis nostrud exercitation ullamco
+                  laboris nisi ut aliquip ex ea commodo consequat. Duis aute
+                  irure dolor in reprehenderit in voluptate velit esse cillum
+                  dolore eu fugiat nulla pariatur.
+                </p>
+                <p>
+                  Excepteur sint occaecat cupidatat non proident, sunt in culpa
+                  qui officia deserunt mollit anim id est laborum.
+                </p>
+              </div>
+            </div>
           </article>
 
           <aside
