@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "../components/Logo";
 
@@ -31,27 +31,38 @@ const topicImages: Record<number, string> = {
   10: "/articles/design.svg",
 };
 
-type Message ={ from: "me" | "bot"; text: string };
+type Message = { from: "me" | "bot"; text: string; files?: string[] };
 
 export default function SearchResults({ query }: { query: string }) {
   const [selected, setSelected] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [evidence, setEvidence] = useState<File[]>([]);
+  const evidenceInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([
-    { from: "bot", text: "Hi! Ask me anything about this article." },
+    {
+      from: "bot",
+      text: "I'm the AI Judge. Challenge this verdict with your argument or upload evidence exhibits.",
+    },
   ]);
+
+  function onEvidenceChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    setEvidence((ev) => [...ev, ...picked]);
+    e.target.value = "";
+  }
 
   function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text && evidence.length === 0) return;
     setMessages((m) => [
       ...m,
-      { from: "me", text },
-      { from: "bot", text: "Thanks! Chat replies aren't connected yet." },
+      { from: "me", text, files: evidence.map((f) => f.name) },
+      { from: "bot", text: "Thanks! Judge replies aren't connected yet." },
     ]);
     setDraft("");
+    setEvidence([]);
   }
 
   const title = topics[selected];
@@ -154,8 +165,8 @@ export default function SearchResults({ query }: { query: string }) {
           />
         )}
 
-        <section className="relative flex-1 overflow-y-auto md:w-4/5">
-          <article className="mx-auto max-w-3xl px-4 py-8 pb-28 sm:px-8">
+        <section className="flex min-h-0 flex-1 flex-col overflow-y-auto md:w-4/5 md:flex-row md:overflow-hidden">
+          <article className="px-4 py-8 sm:px-8 md:w-[65%] md:overflow-y-auto">
             <h1 className="text-2xl font-semibold sm:text-3xl">{title}</h1>
             <p className="mt-1 text-sm text-zinc-500">Dummy article #{selected + 1}</p>
             {topicImages[selected] && (
@@ -183,84 +194,102 @@ export default function SearchResults({ query }: { query: string }) {
             </p>
           </article>
 
-          <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
-            {chatOpen && (
-              <div className="flex h-80 w-[calc(100vw-2rem)] max-w-xs flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
-                <div className="flex items-center justify-between bg-indigo-600 px-4 py-2 text-sm font-medium text-white">
-                  ShareWise Chat
-                  <button
-                    type="button"
-                    onClick={() => setChatOpen(false)}
-                    aria-label="Close chat"
-                    className="rounded-full p-1 hover:bg-indigo-500"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      aria-hidden="true"
-                    >
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm">
-                  {messages.map((m, i) => (
-                    <p
-                      key={i}
-                      className={`max-w-[85%] rounded-2xl px-3 py-2 ${
-                        m.from === "me"
-                          ? "self-end bg-indigo-600 text-white"
-                          : "self-start bg-zinc-100"
-                      }`}
-                    >
-                      {m.text}
+          <aside
+            aria-label="Chat with the AI Judge"
+            className="flex h-[32rem] shrink-0 flex-col border-t border-zinc-200 bg-zinc-50 md:h-auto md:w-[35%] md:border-l md:border-t-0"
+          >
+            <div className="border-b border-zinc-200 bg-white px-4 py-4">
+              <h2 className="text-lg font-semibold italic leading-snug text-indigo-700">
+                Don&apos;t just comment, contribute and let the truth thrive.
+              </h2>
+            </div>
+
+            <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                    m.from === "me"
+                      ? "self-end bg-indigo-600 text-white"
+                      : "self-start bg-white shadow-sm ring-1 ring-zinc-200"
+                  }`}
+                >
+                  {m.text && <p>{m.text}</p>}
+                  {m.files?.map((f) => (
+                    <p key={f} className="mt-1 text-xs opacity-80">
+                      📎 {f}
                     </p>
                   ))}
                 </div>
-                <form onSubmit={sendMessage} className="flex gap-2 border-t border-zinc-200 p-2">
-                  <input
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Type a message"
-                    aria-label="Message"
-                    className="min-w-0 flex-1 rounded-full border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-full bg-indigo-600 px-4 text-sm text-white hover:bg-indigo-700"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            )}
-            {!chatOpen && (
-              <button
-                type="button"
-                onClick={() => setChatOpen(true)}
-                aria-label="Open chat"
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-6 w-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
+              ))}
+            </div>
+
+            <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-2">
+              {evidence.length > 0 && (
+                <ul className="mb-2 flex flex-wrap gap-2">
+                  {evidence.map((f, i) => (
+                    <li
+                      key={`${f.name}-${i}`}
+                      className="flex items-center gap-1 rounded-full bg-indigo-50 py-1 pl-3 pr-1 text-xs text-indigo-700"
+                    >
+                      <span className="max-w-[10rem] truncate">{f.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setEvidence((ev) => ev.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${f.name}`}
+                        className="rounded-full px-1.5 hover:bg-indigo-100"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  ref={evidenceInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  onChange={onEvidenceChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => evidenceInputRef.current?.click()}
+                  aria-label="Upload evidence"
+                  title="Upload evidence"
+                  className="rounded-full border border-zinc-300 p-2 text-zinc-600 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
                 >
-                  <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-                </svg>
-              </button>
-            )}
-          </div>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 11.5l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.3-8.3" />
+                  </svg>
+                </button>
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="Challenge the verdict…"
+                  aria-label="Message"
+                  className="min-w-0 flex-1 rounded-full border border-zinc-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="submit"
+                  className="rounded-full bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700"
+                >
+                  Send
+                </button>
+              </div>
+            </form>
+          </aside>
         </section>
       </div>
     </div>
