@@ -22,7 +22,16 @@ const topics = [
   "The future of online learning",
 ];
 
-type Message = { from: "me" | "bot"; text: string };
+// Index in `topics` -> image shown under the article title.
+const topicImages: Record<number, string> = {
+  0: "/articles/getting-started.svg",
+  1: "/articles/writing.svg",
+  3: "/articles/productivity.svg",
+  6: "/articles/web-development.svg",
+  10: "/articles/design.svg",
+};
+
+type Message ={ from: "me" | "bot"; text: string };
 
 export default function SearchResults({ query }: { query: string }) {
   const [selected, setSelected] = useState(0);
@@ -149,6 +158,14 @@ export default function SearchResults({ query }: { query: string }) {
           <article className="mx-auto max-w-3xl px-4 py-8 pb-28 sm:px-8">
             <h1 className="text-2xl font-semibold sm:text-3xl">{title}</h1>
             <p className="mt-1 text-sm text-zinc-500">Dummy article #{selected + 1}</p>
+            {topicImages[selected] && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={topicImages[selected]}
+                alt=""
+                className="mt-6 aspect-[2/1] w-full rounded-xl border border-zinc-200 object-cover"
+              />
+            )}
             <p className="mt-6 leading-relaxed">
               This is placeholder content for <strong>{title}</strong>. Lorem
               ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod
