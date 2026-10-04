@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "../components/Logo";
 
@@ -33,11 +33,22 @@ const topicImages: Record<number, string> = {
 
 type Message = { from: "me" | "bot"; text: string; files?: string[] };
 
+// Mock reply. Replace the body with a fetch() to the Python REST API later,
+// e.g. POST /api/chat { message, files } -> { reply }.
+async function getJudgeReply(message: string, files: string[]): Promise<string> {
+  void message;
+  void files;
+  await new Promise((resolve) => setTimeout(resolve, 1800));
+  return "Thank you for your input. The AI Judge has reviewed your argument and will weigh it against the evidence. This is a placeholder reply until the backend is connected.";
+}
+
 export default function SearchResults({ query }: { query: string }) {
   const [selected, setSelected] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [evidence, setEvidence] = useState<File[]>([]);
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -52,17 +63,31 @@ export default function SearchResults({ query }: { query: string }) {
     e.target.value = "";
   }
 
-  function sendMessage(e: React.FormEvent) {
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, loading]);
+
+  async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text && evidence.length === 0) return;
-    setMessages((m) => [
-      ...m,
-      { from: "me", text, files: evidence.map((f) => f.name) },
-      { from: "bot", text: "Thanks! Judge replies aren't connected yet." },
-    ]);
+    if (loading || (!text && evidence.length === 0)) return;
+    const files = evidence.map((f) => f.name);
+    setMessages((m) => [...m, { from: "me", text, files }]);
     setDraft("");
     setEvidence([]);
+    setLoading(true);
+    try {
+      const reply = await getJudgeReply(text, files);
+      setMessages((m) => [...m, { from: "bot", text: reply }]);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        { from: "bot", text: "Sorry, something went wrong. Please try again." },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const title = topics[selected];
@@ -209,7 +234,10 @@ export default function SearchResults({ query }: { query: string }) {
               </h2>
             </div>
 
-            <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm">
+            <div
+              ref={scrollRef}
+              className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm"
+            >
               {messages.map((m, i) => (
                 <div
                   key={i}
@@ -227,6 +255,16 @@ export default function SearchResults({ query }: { query: string }) {
                   ))}
                 </div>
               ))}
+              {loading && (
+                <div
+                  role="status"
+                  aria-label="AI Judge is thinking"
+                  className="flex items-center gap-2 self-start rounded-2xl bg-white px-3 py-2 text-zinc-500 shadow-sm ring-1 ring-zinc-200"
+                >
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                  Thinking…
+                </div>
+              )}
             </div>
 
             <form onSubmit={sendMessage} className="border-t border-zinc-200 bg-white p-2">
@@ -288,7 +326,8 @@ export default function SearchResults({ query }: { query: string }) {
                 />
                 <button
                   type="submit"
-                  className="rounded-full bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700"
+                  disabled={loading}
+                  className="rounded-full bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Send
                 </button>
