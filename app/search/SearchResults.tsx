@@ -4,6 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LogoMark } from "../components/Logo";
 
+function BotIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="8" width="16" height="12" rx="3" />
+        <path d="M12 8V4" />
+        <circle cx="12" cy="3" r="1" />
+        <circle cx="9" cy="14" r="1" fill="currentColor" />
+        <circle cx="15" cy="14" r="1" fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
 const topics = [
   "Getting started with ShareWise",
   "How to write a great article",
@@ -33,13 +50,34 @@ const topicImages: Record<number, string> = {
 
 type Message = { from: "me" | "bot"; text: string; files?: string[] };
 
-// Mock reply. Replace the body with a fetch() to the Python REST API later,
-// e.g. POST /api/chat { message, files } -> { reply }.
-async function getJudgeReply(message: string, files: string[]): Promise<string> {
-  void message;
-  void files;
-  await new Promise((resolve) => setTimeout(resolve, 1800));
-  return "Thank you for your input. The AI Judge has reviewed your argument and will weigh it against the evidence. This is a placeholder reply until the backend is connected.";
+// Calls the Python API (proxied by Next.js: /api/* -> FastAPI, see next.config.ts).
+async function getJudgeReply(
+  message: string,
+  files: string[],
+  title: string,
+  history: Message[],
+): Promise<string> {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      files,
+      title,
+      history: history.map((m) => ({
+        role: m.from === "me" ? "user" : "assistant",
+        text: m.files?.length
+          ? `${m.text}\n\n[Attached evidence files: ${m.files.join(", ")}]`
+          : m.text,
+      })),
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `Chat request failed (${res.status}).`);
+  }
+  const data: { reply: string } = await res.json();
+  return data.reply;
 }
 
 export default function SearchResults({ query }: { query: string }) {
@@ -73,17 +111,22 @@ export default function SearchResults({ query }: { query: string }) {
     const text = draft.trim();
     if (loading || (!text && evidence.length === 0)) return;
     const files = evidence.map((f) => f.name);
+    const history = messages;
     setMessages((m) => [...m, { from: "me", text, files }]);
     setDraft("");
     setEvidence([]);
     setLoading(true);
     try {
-      const reply = await getJudgeReply(text, files);
+      const reply = await getJudgeReply(text, files, title, history);
       setMessages((m) => [...m, { from: "bot", text: reply }]);
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "";
       setMessages((m) => [
         ...m,
-        { from: "bot", text: "Sorry, something went wrong. Please try again." },
+        {
+          from: "bot",
+          text: detail || "Sorry, something went wrong. Please try again.",
+        },
       ]);
     } finally {
       setLoading(false);
@@ -238,31 +281,45 @@ export default function SearchResults({ query }: { query: string }) {
               ref={scrollRef}
               className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm"
             >
-              {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 ${
-                    m.from === "me"
-                      ? "self-end bg-indigo-600 text-white"
-                      : "self-start bg-white shadow-sm ring-1 ring-zinc-200"
-                  }`}
-                >
-                  {m.text && <p>{m.text}</p>}
-                  {m.files?.map((f) => (
-                    <p key={f} className="mt-1 text-xs opacity-80">
-                      📎 {f}
-                    </p>
-                  ))}
-                </div>
-              ))}
+              {messages.map((m, i) => {
+                const bubble = (
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                      m.from === "me"
+                        ? "self-end bg-indigo-600 text-white"
+                        : "bg-white shadow-sm ring-1 ring-zinc-200"
+                    }`}
+                  >
+                    {m.text && <p>{m.text}</p>}
+                    {m.files?.map((f) => (
+                      <p key={f} className="mt-1 text-xs opacity-80">
+                        📎 {f}
+                      </p>
+                    ))}
+                  </div>
+                );
+                return m.from === "me" ? (
+                  <div key={i} className="flex justify-end">
+                    {bubble}
+                  </div>
+                ) : (
+                  <div key={i} className="flex items-start gap-2 self-start">
+                    <BotIcon />
+                    {bubble}
+                  </div>
+                );
+              })}
               {loading && (
                 <div
                   role="status"
                   aria-label="AI Judge is thinking"
-                  className="flex items-center gap-2 self-start rounded-2xl bg-white px-3 py-2 text-zinc-500 shadow-sm ring-1 ring-zinc-200"
+                  className="flex items-start gap-2 self-start"
                 >
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
-                  Thinking…
+                  <BotIcon />
+                  <div className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-zinc-500 shadow-sm ring-1 ring-zinc-200">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                    Thinking…
+                  </div>
                 </div>
               )}
             </div>
