@@ -48,7 +48,13 @@ const topicImages: Record<number, string> = {
   10: "/articles/design.svg",
 };
 
-type Message = { from: "me" | "bot"; text: string; files?: string[] };
+type Attachment = { name: string; url: string; isImage: boolean };
+type Message = {
+  from: "me" | "bot";
+  text: string;
+  files?: string[];
+  attachments?: Attachment[];
+};
 
 // Calls the Python API (proxied by Next.js: /api/* -> FastAPI, see next.config.ts).
 async function getJudgeReply(
@@ -86,6 +92,7 @@ export default function SearchResults({ query }: { query: string }) {
   const [draft, setDraft] = useState("");
   const [evidence, setEvidence] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<Attachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([
@@ -102,6 +109,13 @@ export default function SearchResults({ query }: { query: string }) {
   }
 
   useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPreview(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
+
+  useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
@@ -112,7 +126,12 @@ export default function SearchResults({ query }: { query: string }) {
     if (loading || (!text && evidence.length === 0)) return;
     const files = evidence.map((f) => f.name);
     const history = messages;
-    setMessages((m) => [...m, { from: "me", text, files }]);
+    const attachments = evidence.map((f) => ({
+      name: f.name,
+      url: URL.createObjectURL(f),
+      isImage: f.type.startsWith("image/"),
+    }));
+    setMessages((m) => [...m, { from: "me", text, files, attachments }]);
     setDraft("");
     setEvidence([]);
     setLoading(true);
@@ -282,20 +301,55 @@ export default function SearchResults({ query }: { query: string }) {
               className="flex flex-1 flex-col gap-2 overflow-y-auto p-3 text-sm"
             >
               {messages.map((m, i) => {
+                const hasImage = m.attachments?.some((a) => a.isImage);
                 const bubble = (
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3 py-2 ${
-                      m.from === "me"
-                        ? "self-end bg-indigo-600 text-white"
-                        : "bg-white shadow-sm ring-1 ring-zinc-200"
+                    className={`rounded-2xl ${
+                      hasImage
+                        ? "w-[80%] border-2 border-indigo-600 px-1.5 py-0.5 text-zinc-800"
+                        : `max-w-[85%] px-3 py-2 ${
+                            m.from === "me"
+                              ? "self-end bg-indigo-600 text-white"
+                              : "bg-white shadow-sm ring-1 ring-zinc-200"
+                          }`
                     }`}
                   >
                     {m.text && <p>{m.text}</p>}
-                    {m.files?.map((f) => (
-                      <p key={f} className="mt-1 text-xs opacity-80">
-                        📎 {f}
-                      </p>
-                    ))}
+                    {m.attachments?.map((a, j) =>
+                      a.isImage ? (
+                        <div
+                          key={`${a.name}-${j}`}
+                          className="relative my-1 h-[200px] w-full overflow-hidden rounded-lg bg-black/10"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={a.url} alt={a.name} className="h-full w-full object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setPreview(a)}
+                            aria-label={`Expand ${a.name}`}
+                            title="Expand"
+                            className="absolute right-2 top-2 rounded-full bg-black/60 p-1.5 text-white hover:bg-black/80"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-4 w-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                            </svg>
+                          </button>
+                        </div>
+                      ) : (
+                        <p key={`${a.name}-${j}`} className="mt-1 text-xs opacity-80">
+                          📎 {a.name}
+                        </p>
+                      ),
+                    )}
                   </div>
                 );
                 return m.from === "me" ? (
@@ -393,6 +447,44 @@ export default function SearchResults({ query }: { query: string }) {
           </aside>
         </section>
       </div>
+
+      {preview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.name}
+          onClick={() => setPreview(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <button
+            type="button"
+            onClick={() => setPreview(null)}
+            aria-label="Close preview"
+            title="Close"
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/25"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview.url}
+            alt={preview.name}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-full max-w-full rounded-lg object-contain"
+          />
+        </div>
+      )}
     </div>
   );
 }
