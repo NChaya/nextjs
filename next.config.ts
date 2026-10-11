@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.BACKEND_URL ?? "http://18.224.66.251:8000";
+import { BACKEND_URL } from "./config/constants";
 
 const nextConfig: NextConfig = {
   // Forward /api/* to the Python (FastAPI) backend so the browser never
@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${backendUrl}/api/:path*`,
+        destination: `${BACKEND_URL}/api/:path*`,
       },
     ];
   },
