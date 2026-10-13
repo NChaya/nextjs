@@ -21,32 +21,38 @@ function BotIcon() {
   );
 }
 
-const topics = [
-  "Getting started with ShareWise",
-  "How to write a great article",
-  "Understanding shared knowledge",
-  "Top 10 productivity tips",
-  "Beginner's guide to investing",
-  "Remote work best practices",
-  "Learning web development",
-  "Healthy habits for developers",
-  "Introduction to open source",
-  "Mastering time management",
-  "Design principles that matter",
-  "Public speaking made simple",
-  "Building a personal brand",
-  "Research methods explained",
-  "The future of online learning",
-];
-
-// Index in `topics` -> image shown under the article title.
-const topicImages: Record<number, string> = {
-  0: "/articles/getting-started.svg",
-  1: "/articles/writing.svg",
-  3: "/articles/productivity.svg",
-  6: "/articles/web-development.svg",
-  10: "/articles/design.svg",
+type StoredMessage = { role: "user" | "bot"; text: string };
+type Article = {
+  id: string;
+  title: string;
+  article: string;
+  chat: StoredMessage[];
 };
+
+const GREETING: Message = {
+  from: "bot",
+  text: "I'm the AI Judge. Challenge this verdict with your argument or upload evidence exhibits.",
+};
+
+// Greeting followed by the chat history saved in the database for this article.
+function initialMessages(article?: Article): Message[] {
+  const saved: Message[] = (article?.chat ?? []).map((m) => ({
+    from: m.role === "user" ? "me" : "bot",
+    text: m.text,
+  }));
+  return [GREETING, ...saved];
+}
+
+// Calls the Python API, which reads the DynamoDB table (proxied by Next.js).
+async function fetchResults(query: string): Promise<Article[]> {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `Search failed (${res.status}).`);
+  }
+  const data: { results: Article[] } = await res.json();
+  return data.results;
+}
 
 type Attachment = { name: string; url: string; isImage: boolean };
 type Message = {
@@ -87,6 +93,9 @@ async function getJudgeReply(
 }
 
 export default function SearchResults({ query }: { query: string }) {
+  const [results, setResults] = useState<Article[]>([]);
+  const [searching, setSearching] = useState(true);
+  const [searchError, setSearchError] = useState("");
   const [selected, setSelected] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -95,12 +104,7 @@ export default function SearchResults({ query }: { query: string }) {
   const [preview, setPreview] = useState<Attachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      from: "bot",
-      text: "I'm the AI Judge. Challenge this verdict with your argument or upload evidence exhibits.",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(initialMessages());
 
   function onEvidenceChange(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files ?? []);
@@ -114,6 +118,26 @@ export default function SearchResults({ query }: { query: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [preview]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchResults(query)
+      .then((r) => {
+        if (cancelled) return;
+        setResults(r);
+        setSelected(0);
+        setMessages(initialMessages(r[0]));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setResults([]);
+        setSearchError(err instanceof Error ? err.message : "Search failed.");
+      })
+      .finally(() => !cancelled && setSearching(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -152,7 +176,8 @@ export default function SearchResults({ query }: { query: string }) {
     }
   }
 
-  const title = topics[selected];
+  const current = results[selected];
+  const title = current?.title ?? "";
 
   return (
     <div className="flex h-screen flex-col bg-white font-sans text-zinc-800">
@@ -222,13 +247,21 @@ export default function SearchResults({ query }: { query: string }) {
             {query ? `Results for “${query}”` : "Results"}
           </p>
           <ul className="py-2">
-            {topics.map((topic, i) => (
-              <li key={topic}>
+            {searching && <li className="px-4 py-2 text-sm text-zinc-500">Searching…</li>}
+            {!searching && searchError && (
+              <li className="px-4 py-2 text-sm text-red-600">{searchError}</li>
+            )}
+            {!searching && !searchError && results.length === 0 && (
+              <li className="px-4 py-2 text-sm text-zinc-500">No results found.</li>
+            )}
+            {results.map((r, i) => (
+              <li key={r.id}>
                 <a
                   href={`#topic-${i + 1}`}
                   onClick={(e) => {
                     e.preventDefault();
                     setSelected(i);
+                    setMessages(initialMessages(r));
                     setDrawerOpen(false);
                   }}
                   aria-current={i === selected ? "page" : undefined}
@@ -238,7 +271,7 @@ export default function SearchResults({ query }: { query: string }) {
                       : "border-transparent hover:bg-zinc-100"
                   }`}
                 >
-                  {topic}
+                  {r.title}
                 </a>
               </li>
             ))}
@@ -254,36 +287,22 @@ export default function SearchResults({ query }: { query: string }) {
 
         <section className="flex min-h-0 flex-1 flex-col overflow-y-auto md:w-4/5 md:flex-row md:overflow-hidden">
           <article className="px-4 py-8 sm:px-8 md:w-[65%] md:overflow-y-auto">
-            <div className="mx-auto max-w-2xl">
-              <h1 className="font-serif text-3xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-4xl">
-                {title}
-              </h1>
-              {topicImages[selected] && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={topicImages[selected]}
-                  alt=""
-                  className="mt-8 aspect-[2/1] w-full rounded-lg object-cover"
-                />
-              )}
-              <div className="mt-8 space-y-6 font-serif text-lg leading-8 text-zinc-800 sm:text-xl sm:leading-9">
-                <p>
-                  This is placeholder content for <strong>{title}</strong>. Lorem
-                  ipsum dolor sit amet, consectetur adipiscing elit, sed do
-                  eiusmod tempor incididunt ut labore et dolore magna aliqua.
-                </p>
-                <p>
-                  Ut enim ad minim veniam, quis nostrud exercitation ullamco
-                  laboris nisi ut aliquip ex ea commodo consequat. Duis aute
-                  irure dolor in reprehenderit in voluptate velit esse cillum
-                  dolore eu fugiat nulla pariatur.
-                </p>
-                <p>
-                  Excepteur sint occaecat cupidatat non proident, sunt in culpa
-                  qui officia deserunt mollit anim id est laborum.
-                </p>
+            {current ? (
+              <div className="mx-auto max-w-2xl">
+                <h1 className="font-serif text-3xl font-bold leading-tight tracking-tight text-zinc-900 sm:text-4xl">
+                  {current.title}
+                </h1>
+                <div className="mt-8 space-y-6 whitespace-pre-line font-serif text-lg leading-8 text-zinc-800 sm:text-xl sm:leading-9">
+                  {current.article}
+                </div>
               </div>
-            </div>
+            ) : (
+              !searching && (
+                <p className="mx-auto max-w-2xl text-zinc-500">
+                  {searchError || "No articles to show."}
+                </p>
+              )
+            )}
           </article>
 
           <aside
