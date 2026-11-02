@@ -1,10 +1,14 @@
 import asyncio
+import base64
+import binascii
 import os
-from decimal import Decimal, InvalidOperation
+import re
+import time
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 import boto3
-from boto3.dynamodb.conditions import Key
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -55,6 +59,69 @@ class ChatResponse(BaseModel):
     reply: str
 
 
+MAX_FILES_BYTES = 250_000  # DynamoDB items are capped at 400 KB in total
+
+
+class PublishFile(BaseModel):
+    name: str = Field(max_length=255)
+    content_type: str = Field(max_length=100)
+    data: str  # base64, without the "data:...;base64," prefix
+
+
+class PublishRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=50_000)
+    files: list[PublishFile] = Field(default_factory=list, max_length=10)
+
+
+class PublishResponse(BaseModel):
+    id: str
+    title: str
+
+
+def _title_from(content: str) -> str:
+    first_line = next((ln.strip() for ln in content.splitlines() if ln.strip()), "")
+    return first_line[:80] or "Untitled"
+
+
+def _publish(req: PublishRequest) -> PublishResponse:
+    total = 0
+    for f in req.files:
+        try:
+            total += len(base64.b64decode(f.data, validate=True))
+        except binascii.Error as e:
+            raise HTTPException(
+                status_code=422, detail=f"{f.name} is not valid base64."
+            ) from e
+    if total > MAX_FILES_BYTES:
+        raise HTTPException(
+            status_code=413, detail="Files are too large (max 250 KB in total)."
+        )
+
+    title = _title_from(req.content)
+    search_id = time.time_ns() // 1000  # microseconds since epoch, numeric
+    item: dict[str, Any] = {
+        "search_id": search_id,
+        "data": {
+            "title": title,
+            "article": req.content,
+            "author": req.user_name.strip(),
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "chat": [],
+    }
+    if req.files:
+        item["data"]["files"] = [f.model_dump() for f in req.files]
+
+    try:
+        _table.put_item(Item=item, ConditionExpression="attribute_not_exists(search_id)")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise HTTPException(status_code=409, detail="Please try again.") from e
+        raise
+    return PublishResponse(id=str(search_id), title=title)
+
+
 def _to_article(item: dict[str, Any]) -> Article:
     search_id = item.get("search_id", "")
     if isinstance(search_id, Decimal) and search_id == search_id.to_integral_value():
@@ -85,26 +152,22 @@ def _fetch_all(method: Any, **kwargs: Any) -> list[dict[str, Any]]:
         kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
 
 
-def _search_table(q: str) -> list[Article]:
-    needle = q.strip()
-    if needle:
-        # q is treated as a search_id first (number partition key).
-        try:
-            search_id = Decimal(needle)
-        except InvalidOperation:
-            search_id = None
-        if search_id is not None and search_id.is_finite():
-            items = _fetch_all(_table.query, KeyConditionExpression=Key("search_id").eq(search_id))
-            if items:
-                return [_to_article(it) for it in items]
+def _score(query_words: list[str], title: str) -> int:
+    """How many query words appear in the title (whole or partial word)."""
+    lowered = title.lower()
+    return sum(1 for w in query_words if w in lowered)
 
+
+def _search_table(q: str) -> list[Article]:
     articles = [_to_article(it) for it in _fetch_all(_table.scan)]
-    if needle:
-        lowered = needle.lower()
-        articles = [
-            a for a in articles if lowered in a.title.lower() or lowered in a.article.lower()
-        ]
-    return articles
+    query_words = re.sub(r"[^\w\s]", "", q.lower()).split()
+    if not query_words:
+        return articles
+
+    scored = [(_score(query_words, a.title), a) for a in articles]
+    # Best match first; Python's sort is stable, so ties keep table order.
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [a for score, a in scored if score > 0]
 
 
 @app.get("/api/health")
@@ -119,6 +182,14 @@ async def search(q: str = "") -> SearchResponse:
     except (ClientError, BotoCoreError) as e:
         raise HTTPException(status_code=502, detail=f"Database error: {e}") from e
     return SearchResponse(results=results)
+
+
+@app.post("/api/publish", response_model=PublishResponse, status_code=201)
+async def publish(req: PublishRequest) -> PublishResponse:
+    try:
+        return await run_in_threadpool(_publish, req)
+    except (ClientError, BotoCoreError) as e:
+        raise HTTPException(status_code=502, detail=f"Database error: {e}") from e
 
 
 @app.post("/api/chat", response_model=ChatResponse)
